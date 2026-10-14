@@ -40,3 +40,41 @@ clone git@github.com:digital-biosystems/dbs-components-dev.git
 
 # public repos
 clone git@github.com:digital-biosystems/pharmacolibrary-docs.git
+
+# mount webdav storages - each /vagrant/{storage_dir}.webdav holds an owncloud
+# public share link https://host[/path]/index.php/s/{secret}, mounted to /mnt/{storage_dir}
+DEBIAN_FRONTEND=noninteractive apt-get -y install davfs2
+VAGRANT_UID=$(id -u vagrant)
+VAGRANT_GID=$(id -g vagrant)
+touch /etc/davfs2/secrets
+chmod 600 /etc/davfs2/secrets
+for webdav_file in /vagrant/*.webdav; do
+  [ -f "$webdav_file" ] || continue
+  storage_dir=$(basename "$webdav_file" .webdav)
+  mount_point="/mnt/$storage_dir"
+  share_url=$(head -n 1 "$webdav_file" | tr -d '[:space:]')
+  case "$share_url" in
+    http*://*/s/?*) ;;
+    *) echo "$webdav_file: expected share link .../s/{secret}, skipping"; continue ;;
+  esac
+  secret=${share_url##*/s/}
+  secret=${secret%%[/?#]*}
+  base_url=${share_url%%/s/*}
+  base_url=${base_url%/index.php}
+  dav_url="$base_url/public.php/webdav/"
+
+  mkdir -p "$mount_point"
+
+  # owncloud public webdav requires this header
+  grep -qxF "[$mount_point]" /etc/davfs2/davfs2.conf || printf '\n[%s]\nadd_header X-Requested-With XMLHttpRequest\n' "$mount_point" >> /etc/davfs2/davfs2.conf
+
+  # secrets keyed by mount point - several shares on one server share the same dav url
+  sed -i "\#^$mount_point #d" /etc/davfs2/secrets
+  echo "$mount_point \"$secret\" \"null\"" >> /etc/davfs2/secrets
+
+  # fstab entry - mounted again after VM restart
+  sed -i "\# $mount_point davfs #d" /etc/fstab
+  echo "$dav_url $mount_point davfs rw,uid=$VAGRANT_UID,gid=$VAGRANT_GID,_netdev,auto 0 0" >> /etc/fstab
+
+  mountpoint -q "$mount_point" || mount "$mount_point"
+done

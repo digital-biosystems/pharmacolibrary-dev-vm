@@ -8,6 +8,7 @@ Vagrant setup for a Pharmacolibrary development virtual machine. `vagrant up` cr
   - `pharmacolibrary-dev` (private)
   - `dbs-components-dev` (private)
   - `pharmacolibrary-docs` (public)
+- mounts each WebDAV storage configured by a `{storage_dir}.webdav` file to `/mnt/{storage_dir}` (davfs2, remounted after reboot)
 
 VM resources: 8 GB RAM, 4 CPUs, VirtualBox GUI enabled.
 
@@ -47,7 +48,15 @@ VBoxManage --version
 
    The keys are excluded by `.gitignore`. Never commit them.
 
-2. Create and provision the VM:
+2. Optional: for each ownCloud storage to mount, add a `{storage_dir}.webdav` file to this directory. The file contains one line, the public share link:
+
+   ```
+   https://owncloud.cesnet.cz/index.php/s/<secret>
+   ```
+
+   The storage is mounted to `/mnt/{storage_dir}`, owned by the `vagrant` user. The link contains the secret that grants access to the storage. `.webdav` files are excluded by `.gitignore`. Never commit them.
+
+3. Create and provision the VM:
 
    ```bash
    vagrant up
@@ -55,7 +64,7 @@ VBoxManage --version
 
    The first run downloads the base box, so it takes a while. A VirtualBox window opens with the VM's desktop.
 
-3. Open a shell in the VM:
+4. Open a shell in the VM:
 
    ```bash
    vagrant ssh
