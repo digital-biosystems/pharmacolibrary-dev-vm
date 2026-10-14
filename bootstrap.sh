@@ -1,10 +1,12 @@
 apt-get update
-# add swap
-fallocate -l 4G /swapfile
-chmod 600 /swapfile
-mkswap /swapfile
-swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+# add swap - each step skipped if already done, so re-provision is safe
+if [ ! -f /swapfile ]; then
+  fallocate -l 4G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+swapon --show=NAME --noheadings | grep -qxF /swapfile || swapon /swapfile
+grep -qxF '/swapfile none swap sw 0 0' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 # provisioning runs as root - set up ssh and clones for vagrant user explicitly
 VAGRANT_HOME=/home/vagrant
