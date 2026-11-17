@@ -154,7 +154,12 @@ if (-not (Installed)) {
   Step "Importing $Distro (ubuntu-base 24.04)"
   $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
   New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-  $sums = (Invoke-WebRequest -UseBasicParsing "$BaseUrl/SHA256SUMS").Content -split "`n"
+  # curl.exe to a file, read as text: the server sends SHA256SUMS without a Content-Type, so
+  # Invoke-WebRequest in Windows PowerShell 5.1 returns its .Content as bytes, not lines
+  $sumsFile = Join-Path $DataDir 'SHA256SUMS'
+  & curl.exe -fsSL --retry 3 -o $sumsFile "$BaseUrl/SHA256SUMS"
+  if ($LASTEXITCODE -ne 0) { Fail "download of $BaseUrl/SHA256SUMS failed" }
+  $sums = Get-Content -Encoding Ascii $sumsFile | ForEach-Object { $_.Trim() }
   # the newest point release listed, e.g. ubuntu-base-24.04.4-base-amd64.tar.gz
   $entry = $sums | ForEach-Object {
       if ($_ -match "^([0-9a-f]{64}) \*?(ubuntu-base-24\.04(\.(\d+))?-base-$arch\.tar\.gz)$") {
