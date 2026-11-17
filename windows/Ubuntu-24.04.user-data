@@ -1,0 +1,34 @@
+#cloud-config
+# Pharmacolibrary dev environment - first-boot setup of the Ubuntu-24.04 WSL distro.
+#
+# setup.ps1 copies this file to %USERPROFILE%\.cloud-init\Ubuntu-24.04.user-data before it
+# installs the distro, replacing __WSL_USER__ with the Linux user name. Ubuntu's WSL image runs
+# cloud-init on its first boot, so the user exists and is the default before anyone logs in.
+# The project setup itself (repos, venv, Docker) is bootstrap-dbs.sh, run by setup.ps1 after.
+locale: en_US.UTF-8
+
+users:
+  - name: __WSL_USER__
+    gecos: Pharmacolibrary developer
+    groups: [adm, sudo]
+    shell: /bin/bash
+    # no password yet: setup.ps1 asks for one (sudo needs it)
+    lock_passwd: true
+
+write_files:
+  - path: /etc/wsl.conf
+    append: true
+    content: |
+      [boot]
+      # Docker Engine runs as a systemd service
+      systemd=true
+
+      [user]
+      default=__WSL_USER__
+
+package_update: true
+packages:
+  - git
+  - ca-certificates
+  - curl
+  - python3-venv

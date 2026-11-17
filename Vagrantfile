@@ -16,6 +16,8 @@ Vagrant.configure("2") do |config|
     vb.memory = "8192"
     vb.cpus = 4
   end
-  config.vm.provision "shell", path: "./bootstrap.sh"  
+  # VM-specific setup (swap, SSH keys, WebDAV), then the project setup shared with Windows/WSL
+  config.vm.provision "shell", path: "./bootstrap.sh"
+  config.vm.provision "shell", path: "./bootstrap-dbs.sh", args: ["--user", "vagrant"]
   # config.vm.provision "shell", path: "./bootstrap_sw.sh"  
 end

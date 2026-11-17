@@ -1,0 +1,7 @@
+# bash and cloud-init read these inside Linux: keep LF even when Git for Windows converts to CRLF
+*.sh text eol=lf
+*.user-data text eol=lf
+Vagrantfile text eol=lf
+windows/wslconfig text eol=lf
+# PowerShell
+*.ps1 text eol=crlf

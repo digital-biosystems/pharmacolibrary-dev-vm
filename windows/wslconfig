@@ -1,0 +1,13 @@
+# Pharmacolibrary dev environment - WSL2 limits for an 8 GB Windows 11 machine.
+# setup.ps1 copies this file to %USERPROFILE%\.wslconfig (an existing one is backed up first).
+# It applies to every WSL distro, and only after `wsl --shutdown`.
+[wsl2]
+# Windows itself, a browser and VS Code need about 3 GB; WSL gets the rest.
+memory=5GB
+# Swap absorbs peaks (GROBID + omc container + pipeline) instead of the OOM killer.
+swap=6GB
+processors=4
+
+[experimental]
+# Return memory freed inside Linux to Windows over time.
+autoMemoryReclaim=gradual
