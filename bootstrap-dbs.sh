@@ -11,6 +11,7 @@
 #   bash bootstrap-dbs.sh --user NAME [--no-docker] [--no-venv]
 #                         [--with-grobid] [--with-omc] [--with-wasm]
 #                         [--grobid-image IMAGE] [--grobid-mem SIZE]
+#                         [--projects-dir DIR]
 #                         [--no-kb] [--kb-dir DIR] [--with-corpus | --with-demo-corpus]
 #                         [--with-nc-corpus]
 #                         [--zenodo-token-file FILE]
@@ -19,15 +20,19 @@
 #   --no-docker          skip Docker Engine (GROBID and omc run in Docker)
 #   --no-venv            skip the Python venv in ~/venv
 #   --with-grobid        pull the GROBID image now (else on first scripts/run_grobid.sh)
-#   --with-omc           pull the OpenModelica image and set PK_OMC_DOCKER
+#   --with-omc           pull the OpenModelica image now (else on first use); PK_OMC_DOCKER is
+#                        set whenever Docker is on and omc is not installed
 #   --with-wasm          clone Bodylight.js-FMU-Compiler (browser simulator, export.fmu --wasm)
 #   --grobid-image IMAGE GROBID image for scripts/run_grobid.sh (written to the env file)
 #   --grobid-mem SIZE    GROBID container memory, e.g. 2g (written to the env file)
+#   --projects-dir DIR   where the repositories are cloned, side by side (default: the user's home;
+#                        WSL: the Windows %USERPROFILE%\Projects, so Windows programs see them too)
 #   --no-kb              skip the Zenodo knowledge base (below)
 #   --kb-dir DIR         where the knowledge base is unpacked (default ~/knowledgebase)
 #   --with-corpus        also the redistributable source corpus (PDFs, TEI, text; ~40 GB)
 #   --with-demo-corpus   the research dataset AND the redistributable corpus, but only the files of
-#                        the ddd and dku panel drugs (12 drugs, ~0.65 GB unpacked); see below
+#                        the ddd and dku panel drugs (12 drugs, ~0.65 GB unpacked); see below.
+#                        Combines with --with-nc-corpus, not with --with-corpus
 #   --with-nc-corpus     also the non-commercial source corpus (~20 GB; licence terms apply)
 #   --zenodo-token-file  Zenodo access token of the record owner, to fetch an unpublished draft
 #
@@ -67,6 +72,7 @@ WITH_DEMO=0
 # keep in step with them. Names, not slugs: drug_<name> is the folder.
 DEMO_DRUGS="${DEMO_DRUGS:-metformin ibuprofen amoxicillin semaglutide tolvaptan allopurinol clopidogrel vancomycin tacrolimus busulfan infliximab posaconazole}"
 KB_DIR=""
+PROJECTS_DIR=""
 ZENODO_TOKEN_FILE=""
 # the Zenodo records (https://doi.org/10.5281/zenodo.<id>)
 ZENODO_RESEARCH_ID="${ZENODO_RESEARCH_ID:-24119263}"
@@ -85,6 +91,7 @@ while [ $# -gt 0 ]; do
     --grobid-mem)   GROBID_MEM="$2"; shift 2 ;;
     --no-kb)        WITH_KB=0; shift ;;
     --kb-dir)       KB_DIR="$2"; shift 2 ;;
+    --projects-dir) PROJECTS_DIR="$2"; shift 2 ;;
     --with-corpus)  WITH_CORPUS=1; shift ;;
     --with-nc-corpus) WITH_NC_CORPUS=1; shift ;;
     --with-demo-corpus) WITH_DEMO=1; shift ;;
@@ -102,8 +109,8 @@ fi
 if [ "$WITH_KB" -eq 0 ] && { [ "$WITH_CORPUS" -eq 1 ] || [ "$WITH_NC_CORPUS" -eq 1 ]; }; then
   echo "bootstrap-dbs.sh: --with-corpus and --with-nc-corpus need the knowledge base (drop --no-kb)" >&2; exit 2
 fi
-if [ "$WITH_DEMO" -eq 1 ] && { [ "$WITH_KB" -eq 0 ] || [ "$WITH_CORPUS" -eq 1 ] || [ "$WITH_NC_CORPUS" -eq 1 ]; }; then
-  echo "bootstrap-dbs.sh: --with-demo-corpus replaces --with-corpus and cannot be combined with --with-corpus, --with-nc-corpus or --no-kb" >&2; exit 2
+if [ "$WITH_DEMO" -eq 1 ] && { [ "$WITH_KB" -eq 0 ] || [ "$WITH_CORPUS" -eq 1 ]; }; then
+  echo "bootstrap-dbs.sh: --with-demo-corpus replaces --with-corpus and cannot be combined with --with-corpus or --no-kb" >&2; exit 2
 fi
 if [ "$WITH_DOCKER" -eq 0 ] && { [ "$WITH_GROBID" -eq 1 ] || [ "$WITH_OMC" -eq 1 ]; }; then
   echo "bootstrap-dbs.sh: --with-grobid and --with-omc need Docker (drop --no-docker)" >&2; exit 2
@@ -115,12 +122,15 @@ USER_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 SSH_DIR="$USER_HOME/.ssh"
 [ -n "$KB_DIR" ] || KB_DIR="$USER_HOME/knowledgebase"
 case "$KB_DIR" in /*) ;; *) KB_DIR="$USER_HOME/$KB_DIR" ;; esac     # relative: below the home
+[ -n "$PROJECTS_DIR" ] || PROJECTS_DIR="$USER_HOME"
+case "$PROJECTS_DIR" in /*) ;; *) PROJECTS_DIR="$USER_HOME/$PROJECTS_DIR" ;; esac
 as_user() { sudo -u "$TARGET_USER" -H "$@"; }
 log() { echo "[bootstrap-dbs] $*"; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get -y install git openssh-client sudo ca-certificates curl
+# procps (pgrep, ps): the project's run scripts; a minimal image (ubuntu-base, WSL) lacks it
+apt-get -y install git openssh-client sudo ca-certificates curl procps
 
 # --- GitHub host key: pinned, so the first clone never prompts -------------------------------
 # If GitHub rotates this key, update it here.
@@ -134,11 +144,12 @@ chown -R "$TARGET_USER:" "$SSH_DIR"
 
 # --- repositories ----------------------------------------------------------------------------
 clone() {
-  local dir="$USER_HOME/$(basename "$1" .git)"
+  local dir="$PROJECTS_DIR/$(basename "$1" .git)"
   if [ -d "$dir" ]; then
     log "$dir exists, skipping clone"
   else
-    as_user git -C "$USER_HOME" clone "$1"
+    as_user mkdir -p "$PROJECTS_DIR"
+    as_user git -C "$PROJECTS_DIR" clone "$1"
   fi
 }
 
@@ -148,6 +159,8 @@ clone git@github.com:digital-biosystems/dbs-components-dev.git
 
 # public repos
 clone git@github.com:digital-biosystems/pharmacolibrary-docs.git
+# the Modelica library the generated models extend (engineer, export.fmu); PHARMACOLIBRARY_MO below
+clone git@github.com:digital-biosystems/Pharmacolibrary.git
 
 if [ "$WITH_WASM" -eq 1 ]; then
   # export.fmu --wasm compiles in this tool's pinned emsdk Docker image: no emsdk install here.
@@ -160,7 +173,7 @@ if [ "$WITH_VENV" -eq 1 ]; then
   if [ ! -x "$USER_HOME/venv/bin/python" ]; then
     as_user python3 -m venv "$USER_HOME/venv"
   fi
-  REQ="$USER_HOME/pharmacolibrary-dev/requirements.txt"
+  REQ="$PROJECTS_DIR/pharmacolibrary-dev/requirements.txt"
   if [ -f "$REQ" ]; then
     as_user "$USER_HOME/venv/bin/pip" install --upgrade pip
     # a failed install (e.g. a Python too old for a pinned package) must not stop the rest
@@ -185,11 +198,13 @@ if [ "$WITH_DOCKER" -eq 1 ]; then
     log "docker already installed, skipping"
   fi
   getent group docker >/dev/null && usermod -aG docker "$TARGET_USER"
-  # WSL needs systemd (the user-data file turns it on); a VM has it anyway
+  # A VM runs systemd. The WSL distro does not (windows/setup.ps1 sets systemd=false): there
+  # Docker's init script starts it now, and wsl.conf's boot command on every later start.
   if [ -d /run/systemd/system ]; then
     systemctl enable --now docker
   else
-    log "WARNING: systemd is not running; start Docker with: sudo service docker start"
+    service docker status >/dev/null 2>&1 || service docker start \
+      || log "WARNING: Docker did not start; try: sudo service docker start"
   fi
   # group membership applies to new logins only, so pull through sudo -g docker
   pull() { docker image inspect "$1" >/dev/null 2>&1 || sudo -u "$TARGET_USER" -g docker -H docker pull "$1"; }
@@ -523,7 +538,7 @@ if [ "$WITH_KB" -eq 1 ]; then
   done
   # Point the code at it: "knowledgebase" in the untracked pharmacolibrary.local.json, keeping
   # its other settings (e.g. the graph URI). Only once some data is there.
-  CONF="$USER_HOME/pharmacolibrary-dev/pharmacolibrary.local.json"
+  CONF="$PROJECTS_DIR/pharmacolibrary-dev/pharmacolibrary.local.json"
   if [ "$loaded" -eq 1 ] || ls "$KB_DIR"/.zenodo/*/*.done >/dev/null 2>&1; then
     python3 - "$CONF" "$KB_DIR" <<'PY'
 import json, os, sys
@@ -555,10 +570,21 @@ ENV_FILE="$USER_HOME/.pharmacolibrary_env"
 {
   echo "# written by bootstrap-dbs.sh - re-run it to change, do not edit by hand"
   echo "export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
-  [ "$WITH_OMC" -eq 1 ] && echo "export PK_OMC_DOCKER=$OMC_IMAGE"
+  # omc in Docker wherever it is not installed (the VM's box has it natively)
+  if [ "$WITH_DOCKER" -eq 1 ] && ! command -v omc >/dev/null 2>&1; then
+    echo "export PK_OMC_DOCKER=$OMC_IMAGE"
+  fi
+  # without systemd (WSL): no systemd-inhibit lock for run_logged.sh, and a UTF-8 locale
+  # (a minimal image has no locales package)
+  if [ ! -d /run/systemd/system ]; then
+    echo "export RUN_LOGGED_INHIBIT=0"
+    echo "export LANG=\${LANG:-C.UTF-8}"
+  fi
   [ -n "$GROBID_IMAGE" ] && echo "export GROBID_IMAGE=$GROBID_IMAGE"
   [ -n "$GROBID_MEM" ] && echo "export GROBID_MEM=$GROBID_MEM"
-  [ "$WITH_WASM" -eq 1 ] && echo "export BODYLIGHT_FMU_COMPILER=$USER_HOME/Bodylight.js-FMU-Compiler"
+  [ "$WITH_WASM" -eq 1 ] && echo "export BODYLIGHT_FMU_COMPILER=\"$PROJECTS_DIR/Bodylight.js-FMU-Compiler\""
+  LIB_MO="$PROJECTS_DIR/Pharmacolibrary/Pharmacolibrary/package.mo"
+  [ -f "$LIB_MO" ] && echo "export PHARMACOLIBRARY_MO=\"$LIB_MO\""
   true
 } > "$ENV_FILE"
 chown "$TARGET_USER:" "$ENV_FILE"
@@ -568,4 +594,4 @@ touch "$BASHRC"
 grep -qxF "$LINE" "$BASHRC" || echo "$LINE" >> "$BASHRC"
 chown "$TARGET_USER:" "$BASHRC"
 
-log "done for $TARGET_USER: repos in $USER_HOME, knowledge base $( [ "$WITH_KB" -eq 1 ] && echo "$KB_DIR" || echo skipped ), venv $( [ "$WITH_VENV" -eq 1 ] && echo "$USER_HOME/venv" || echo skipped ), docker $( [ "$WITH_DOCKER" -eq 1 ] && echo on || echo skipped )"
+log "done for $TARGET_USER: repos in $PROJECTS_DIR, knowledge base $( [ "$WITH_KB" -eq 1 ] && echo "$KB_DIR" || echo skipped ), venv $( [ "$WITH_VENV" -eq 1 ] && echo "$USER_HOME/venv" || echo skipped ), docker $( [ "$WITH_DOCKER" -eq 1 ] && echo on || echo skipped )"
