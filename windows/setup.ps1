@@ -45,7 +45,7 @@
 .PARAMETER ZenodoLinks
   Text file with Zenodo share links, one per line, to download the datasets while they are
   still unpublished drafts (the record owner makes them: the draft's Share > Get a link,
-  "Can preview"). Default: zenodo-links.txt in this repository, if present (gitignored).
+  "Can preview"). Default: zenodo-links.txt in this repository or in its windows folder, if present (gitignored).
   Not needed once the records are published.
 
 .EXAMPLE
@@ -269,12 +269,15 @@ elseif ($WithCorpus) { $bootArgs += ' --with-corpus' }
 else { $bootArgs += ' --with-demo-corpus' }
 if ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
 # share links of unpublished Zenodo drafts: read from a file, never on the command line
-if (-not $ZenodoLinks -and (Test-Path (Join-Path $RepoDir 'zenodo-links.txt'))) {
-  $ZenodoLinks = Join-Path $RepoDir 'zenodo-links.txt'
+if (-not $ZenodoLinks) {
+  $ZenodoLinks = @((Join-Path $RepoDir 'zenodo-links.txt'), (Join-Path $Here 'zenodo-links.txt')) |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if ($ZenodoLinks -and -not $NoKnowledgebase) {
   if (-not (Test-Path $ZenodoLinks)) { Fail "ZenodoLinks file not found: $ZenodoLinks" }
-  $bootArgs += " --zenodo-links-file '$(WslPath (Resolve-Path $ZenodoLinks).Path)'"
+  $ZenodoLinks = (Resolve-Path $ZenodoLinks).Path
+  Write-Host "Zenodo share links: $ZenodoLinks"
+  $bootArgs += " --zenodo-links-file '$(WslPath $ZenodoLinks)'"
 }
 # strip CR: Git for Windows may have checked the script out with CRLF line endings
 $rc = InWsl "tr -d '\r' < '$script' > /tmp/bootstrap-dbs.sh && bash /tmp/bootstrap-dbs.sh $bootArgs" -Root
