@@ -15,7 +15,8 @@
   4. Creates the Linux user and writes /etc/wsl.conf: default user, no systemd, Docker started
      when the distro starts, Windows drives mounted with Linux permissions and with directories
      created from Linux case-sensitive. Links ~/Projects in Linux to %USERPROFILE%\Projects.
-  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh.
+  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh, and copies the API key
+     files of %USERPROFILE%\.config\pharmacolibrary into ~/.config/pharmacolibrary (mode 600).
   6. Runs ..\bootstrap-dbs.sh in the distro as root: the repositories cloned side by side into
      %USERPROFILE%\Projects (beside this one), Python venv (~/venv, inside Linux), Docker Engine,
      Bodylight.js-FMU-Compiler, the Zenodo knowledge base in %USERPROFILE%\Projects\knowledgebase.
@@ -256,6 +257,30 @@ if ((InWsl "ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | gre
   Fail 'GitHub does not accept the SSH key in WSL ~/.ssh. Register it at https://github.com/settings/keys and run this script again.'
 }
 Write-Host 'GitHub accepts the key'
+
+# --- 5b. API key files (e-INFRA CZ, OpenAI, NCBI, Semantic Scholar, Zenodo, ...) --------------
+# The code reads them from the Linux home (~/.config/pharmacolibrary), not from Windows: copy
+# each file of %USERPROFILE%\.config\pharmacolibrary that WSL does not have yet, mode 600.
+# A file that differs is reported, not overwritten. Key contents are never printed.
+$winConf = Join-Path $env:USERPROFILE '.config\pharmacolibrary'
+if (Test-Path $winConf) {
+  Step 'API key files (~/.config/pharmacolibrary)'
+  $src = WslPath $winConf
+  $null = InWslScript @"
+set -u
+dst=`$HOME/.config/pharmacolibrary
+mkdir -p "`$dst" && chmod 700 "`$HOME/.config" "`$dst"
+for f in '$src'/*; do
+  [ -f "`$f" ] || continue
+  n=`$(basename "`$f")
+  if [ ! -e "`$dst/`$n" ]; then
+    tr -d '\r' < "`$f" > "`$dst/`$n" && chmod 600 "`$dst/`$n" && echo "copied `$n"
+  elif ! tr -d '\r' < "`$f" | cmp -s - "`$dst/`$n"; then
+    echo "kept ~/.config/pharmacolibrary/`$n: it differs from the Windows copy (delete it to copy again)"
+  fi
+done
+"@
+}
 
 # --- 6. project setup (shared with the Vagrant VM) ---------------------------------------------
 Step 'Project setup: bootstrap-dbs.sh'
