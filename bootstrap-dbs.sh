@@ -14,7 +14,7 @@
 #                         [--projects-dir DIR]
 #                         [--no-kb] [--kb-dir DIR] [--with-corpus | --with-demo-corpus]
 #                         [--with-nc-corpus]
-#                         [--zenodo-token-file FILE]
+#                         [--zenodo-token-file FILE] [--zenodo-links-file FILE]
 #
 #   --user NAME          owner of the clones, venv and settings (required)
 #   --no-docker          skip Docker Engine (GROBID and omc run in Docker)
@@ -35,6 +35,10 @@
 #                        Combines with --with-nc-corpus, not with --with-corpus
 #   --with-nc-corpus     also the non-commercial source corpus (~20 GB; licence terms apply)
 #   --zenodo-token-file  Zenodo access token of the record owner, to fetch an unpublished draft
+#   --zenodo-links-file  Zenodo share links (Share > Get a link, "Can preview"), one per line, to
+#                        fetch unpublished drafts without an account; default: zenodo-links.txt
+#                        beside this script, if present (gitignored). Lines like
+#                        https://zenodo.org/records/24119263?preview=1&token=...  (or: ID TOKEN)
 #
 # Knowledge base: the public Zenodo datasets are downloaded, checked against Zenodo's MD5 and
 # unpacked into --kb-dir, which is then set as "knowledgebase" in
@@ -74,6 +78,7 @@ DEMO_DRUGS="${DEMO_DRUGS:-metformin ibuprofen amoxicillin semaglutide tolvaptan 
 KB_DIR=""
 PROJECTS_DIR=""
 ZENODO_TOKEN_FILE=""
+ZENODO_LINKS_FILE=""
 # the Zenodo records (https://doi.org/10.5281/zenodo.<id>)
 ZENODO_RESEARCH_ID="${ZENODO_RESEARCH_ID:-24119263}"
 ZENODO_CORPUS_ID="${ZENODO_CORPUS_ID:-24125755}"
@@ -96,12 +101,19 @@ while [ $# -gt 0 ]; do
     --with-nc-corpus) WITH_NC_CORPUS=1; shift ;;
     --with-demo-corpus) WITH_DEMO=1; shift ;;
     --zenodo-token-file) ZENODO_TOKEN_FILE="$2"; shift 2 ;;
+    --zenodo-links-file) ZENODO_LINKS_FILE="$2"; shift 2 ;;
     *) echo "bootstrap-dbs.sh: unknown option $1" >&2; exit 2 ;;
   esac
 done
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "bootstrap-dbs.sh: run as root" >&2; exit 2
+fi
+if [ -z "$ZENODO_LINKS_FILE" ] && [ -f "$(dirname -- "$0")/zenodo-links.txt" ]; then
+  ZENODO_LINKS_FILE="$(dirname -- "$0")/zenodo-links.txt"
+fi
+if [ -n "$ZENODO_LINKS_FILE" ] && [ ! -r "$ZENODO_LINKS_FILE" ]; then
+  echo "bootstrap-dbs.sh: --zenodo-links-file $ZENODO_LINKS_FILE is not readable" >&2; exit 2
 fi
 if [ -z "$TARGET_USER" ] || ! id "$TARGET_USER" >/dev/null 2>&1; then
   echo "bootstrap-dbs.sh: --user must name an existing user (got '$TARGET_USER')" >&2; exit 2
@@ -218,11 +230,20 @@ fi
 
 # --- knowledge base from the public Zenodo datasets -------------------------------------------
 # Lists a record's files as TSV (name, bytes, md5, url); exit 4 when the record is not public.
+# An unpublished draft is read with its share link (the link's token rides in each file URL's
+# query; Zenodo accepts it on the draft API, Range requests included) or the owner's token.
 zenodo_list() {   # <record id>
-  python3 - "$1" "$ZENODO_TOKEN_FILE" <<'PY'
-import json, sys, urllib.request, urllib.error
-rid, tokfile = sys.argv[1], sys.argv[2]
+  python3 - "$1" "$ZENODO_TOKEN_FILE" "$ZENODO_LINKS_FILE" <<'PY'
+import json, re, sys, urllib.parse, urllib.request, urllib.error
+rid, tokfile, linkfile = sys.argv[1], sys.argv[2], sys.argv[3]
 token = open(tokfile).read().strip() if tokfile else ""
+links = {}
+for line in (open(linkfile, encoding="utf-8-sig") if linkfile else []):
+    line = line.strip()
+    m = (re.search(r"/(?:records|uploads|deposit)/(\d+)\S*?[?&]token=([^&\s#]+)", line)
+         or re.match(r"(\d+)\s+(\S+)$", line))
+    if m and not line.startswith("#"):
+        links[m.group(1)] = urllib.parse.unquote(m.group(2))
 def get(url, auth):
     h = {"Accept": "application/json"}
     if auth:
@@ -235,6 +256,18 @@ try:
 except urllib.error.HTTPError as e:
     if e.code not in (401, 403, 404):
         sys.exit(f"zenodo record {rid}: HTTP {e.code}")
+    if rid in links:                    # a draft, read through its share link
+        q = "token=" + urllib.parse.quote(links[rid], safe="")
+        try:
+            d = get(f"https://zenodo.org/api/records/{rid}/draft/files?{q}", False)
+        except urllib.error.HTTPError as e3:
+            print(f"zenodo draft {rid}: the share link was refused (HTTP {e3.code}; expired or "
+                  "revoked?)", file=sys.stderr)
+            sys.exit(4)
+        for f in d["entries"]:
+            print(f"{f['key']}\t{f['size']}\t{str(f.get('checksum', '')).split(':')[-1]}\t"
+                  f"{f['links']['content']}?{q}")
+        sys.exit(0)
     if not token:
         sys.exit(4)                     # not published (a draft answers 404 to everyone else)
     try:
@@ -303,7 +336,7 @@ class Stream:
                 return
             except OSError:
                 time.sleep(5 * (attempt + 1))
-        raise SystemExit(f"{name}: cannot open {url}")
+        raise SystemExit(f"{name}: cannot open {url.split('?')[0]}")   # the query may hold a share-link token
     def read(self, n=1 << 20):
         if self.end is not None:
             n = min(n, self.end - self.pos)
@@ -532,7 +565,7 @@ if [ "$WITH_KB" -eq 1 ]; then
     fetch_zenodo "$label" "$rid" "$demo" || rc=$?
     case "$rc" in
       0) loaded=1 ;;
-      4) log "WARNING: Zenodo record $rid ($label) is not public yet — skipped (https://doi.org/10.5281/zenodo.$rid). The owner can pass --zenodo-token-file." ;;
+      4) log "WARNING: Zenodo record $rid ($label) is not public yet — skipped (https://doi.org/10.5281/zenodo.$rid). Put its share link in zenodo-links.txt (--zenodo-links-file), or the owner can pass --zenodo-token-file." ;;
       *) log "WARNING: $label did not finish; run this script again to resume" ;;
     esac
   done

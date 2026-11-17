@@ -42,10 +42,16 @@
   Skip the Zenodo knowledge base.
 .PARAMETER ProjectsDir
   Windows folder for the repositories and the knowledge base. Default: %USERPROFILE%\Projects.
+.PARAMETER ZenodoLinks
+  Text file with Zenodo share links, one per line, to download the datasets while they are
+  still unpublished drafts (the record owner makes them: the draft's Share > Get a link,
+  "Can preview"). Default: zenodo-links.txt in this repository, if present (gitignored).
+  Not needed once the records are published.
 
 .EXAMPLE
   windows\setup.cmd
   windows\setup.cmd -WithCorpus
+  windows\setup.cmd -ZenodoLinks C:\Users\me\Downloads\zenodo-links.txt
   powershell -ExecutionPolicy Bypass -File windows\setup.ps1
 #>
 [CmdletBinding()]
@@ -55,7 +61,8 @@ param(
   [switch]$WithCorpus,
   [switch]$WithNcCorpus,
   [switch]$NoKnowledgebase,
-  [string]$ProjectsDir = (Join-Path $env:USERPROFILE 'Projects')
+  [string]$ProjectsDir = (Join-Path $env:USERPROFILE 'Projects'),
+  [string]$ZenodoLinks = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Windows PowerShell 5 downloads slowly with a progress bar
@@ -256,6 +263,14 @@ if ($NoKnowledgebase) { $bootArgs += ' --no-kb' }
 elseif ($WithCorpus) { $bootArgs += ' --with-corpus' }
 else { $bootArgs += ' --with-demo-corpus' }
 if ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
+# share links of unpublished Zenodo drafts: read from a file, never on the command line
+if (-not $ZenodoLinks -and (Test-Path (Join-Path $RepoDir 'zenodo-links.txt'))) {
+  $ZenodoLinks = Join-Path $RepoDir 'zenodo-links.txt'
+}
+if ($ZenodoLinks -and -not $NoKnowledgebase) {
+  if (-not (Test-Path $ZenodoLinks)) { Fail "ZenodoLinks file not found: $ZenodoLinks" }
+  $bootArgs += " --zenodo-links-file '$(WslPath (Resolve-Path $ZenodoLinks).Path)'"
+}
 # strip CR: Git for Windows may have checked the script out with CRLF line endings
 $rc = InWsl "tr -d '\r' < '$script' > /tmp/bootstrap-dbs.sh && bash /tmp/bootstrap-dbs.sh $bootArgs" -Root
 if ($rc -ne 0) { Fail "bootstrap-dbs.sh failed (exit $rc); fix the cause and run this script again" }
