@@ -142,7 +142,8 @@ log() { echo "[bootstrap-dbs] $*"; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 # procps (pgrep, ps): the project's run scripts; a minimal image (ubuntu-base, WSL) lacks it
-apt-get -y install git openssh-client sudo ca-certificates curl procps
+# poppler-utils (pdftotext, pdftoppm, pdfinfo): the pipeline's PDF text and page-image extraction
+apt-get -y install git openssh-client sudo ca-certificates curl procps poppler-utils
 
 # --- GitHub host key: pinned, so the first clone never prompts -------------------------------
 # If GitHub rotates this key, update it here.
