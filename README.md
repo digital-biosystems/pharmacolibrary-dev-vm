@@ -53,6 +53,8 @@ Options:
 
 Open a shell with `wsl -d Pharmacolibrary`. To use VS Code with the WSL extension, run `code ~/Projects/pharmacolibrary-dev` from that shell.
 
+To start OMEdit with the library loaded, run `~/Projects/pharmacolibrary-dev-vm/omedit.sh [FILE.mo ...]`. OMEdit runs in the `$PK_OMC_DOCKER` image and its window appears on the Windows desktop through WSLg. The first start pulls the image, several GB, and installs the Modelica Standard Library into `~/.openmodelica/libraries`, which the pipeline's omc container also uses; the image has none of its own. `-n` prints the `docker run` command instead of running it.
+
 ### Layout
 
 Everything except the venv lives in `%USERPROFILE%\Projects`, which Linux sees as `~/Projects` (a symlink to `/mnt/c/Users/<you>/Projects`):
@@ -104,7 +106,7 @@ sudo apt update && sudo apt install vagrant
 
 1. Copy your SSH key pair, registered on GitHub with access to the private repositories, into this directory as `id_rsa` and `id_rsa.pub`. `.gitignore` excludes them; never commit them.
 2. Run `vagrant up`. The first run downloads the base box.
-3. Use the VirtualBox desktop or `vagrant ssh`.
+3. Use the VirtualBox desktop or `vagrant ssh`. In the VM, `/vagrant/omedit.sh` starts the installed OMEdit with the library loaded.
 
 `vagrant provision` re-runs the provisioning, which is safe to repeat. `vagrant destroy` deletes the VM and everything in it, so push your work first. `vagrant box remove westlife-eu/openmodelica1.25` also deletes the cached box.
 

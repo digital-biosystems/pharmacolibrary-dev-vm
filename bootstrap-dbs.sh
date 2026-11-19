@@ -20,8 +20,10 @@
 #   --no-docker          skip Docker Engine (GROBID and omc run in Docker)
 #   --no-venv            skip the Python venv in ~/venv
 #   --with-grobid        pull the GROBID image now (else on first scripts/run_grobid.sh)
-#   --with-omc           pull the OpenModelica image now (else on first use); PK_OMC_DOCKER is
-#                        set whenever Docker is on and omc is not installed
+#   --with-omc           pull the OpenModelica image now (else on first use) and, without a local
+#                        omc, install the Modelica Standard Library into ~/.openmodelica/libraries
+#                        (the image has none); PK_OMC_DOCKER is set whenever Docker is on and omc
+#                        is not installed
 #   --with-wasm          clone Bodylight.js-FMU-Compiler (browser simulator, export.fmu --wasm)
 #   --grobid-image IMAGE GROBID image for scripts/run_grobid.sh (written to the env file)
 #   --grobid-mem SIZE    GROBID container memory, e.g. 2g (written to the env file)
@@ -72,6 +74,8 @@ WITH_WASM=0
 GROBID_IMAGE=""
 GROBID_MEM=""
 OMC_IMAGE="openmodelica/openmodelica:v1.26.3-gui"
+# the MSL that Pharmacolibrary's package.mo uses (omc picks the newest compatible: 4.1.0)
+MSL_VERSION="4.0.0"
 WITH_KB=1
 WITH_CORPUS=0
 WITH_NC_CORPUS=0
@@ -241,6 +245,17 @@ if [ "$WITH_DOCKER" -eq 1 ]; then
   fi
   if [ "$WITH_OMC" -eq 1 ]; then
     pull "$OMC_IMAGE"
+    # The image has no Modelica libraries: omc in it (pipeline, omedit.sh) reads the user's
+    # ~/.openmodelica/libraries, so install the MSL that Pharmacolibrary uses there.
+    if ! command -v omc >/dev/null 2>&1 && ! compgen -G "$USER_HOME/.openmodelica/libraries/Modelica [0-9]*" >/dev/null; then
+      log "installing Modelica $MSL_VERSION into ~/.openmodelica/libraries"
+      mos="$(as_user mktemp -p "$USER_HOME" .msl-XXXXXX.mos)"
+      echo "installPackage(Modelica, \"$MSL_VERSION\", exactMatch=false); getErrorString();" | as_user tee "$mos" >/dev/null
+      sudo -u "$TARGET_USER" -g docker -H docker run --rm --user "$(id -u "$TARGET_USER"):$(id -g "$TARGET_USER")" \
+        -e HOME="$USER_HOME" -v "$USER_HOME:$USER_HOME" -w "$USER_HOME" --entrypoint omc "$OMC_IMAGE" "$mos" \
+        || log "WARNING: could not install the Modelica Standard Library; omedit.sh retries"
+      rm -f "$mos"
+    fi
   fi
 fi
 
