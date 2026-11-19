@@ -15,7 +15,8 @@
   4. Creates the Linux user and writes /etc/wsl.conf: default user, no systemd, Docker started
      when the distro starts, Windows drives mounted with Linux permissions and with directories
      created from Linux case-sensitive. Links ~/Projects in Linux to %USERPROFILE%\Projects.
-  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh.
+  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh, and copies the API key
+     files of %USERPROFILE%\.config\pharmacolibrary into ~/.config/pharmacolibrary (mode 600).
   6. Runs ..\bootstrap-dbs.sh in the distro as root: the repositories cloned side by side into
      %USERPROFILE%\Projects (beside this one), Python venv (~/venv, inside Linux), Docker Engine,
      Bodylight.js-FMU-Compiler, the Zenodo knowledge base in %USERPROFILE%\Projects\knowledgebase.
@@ -45,7 +46,7 @@
 .PARAMETER ZenodoLinks
   Text file with Zenodo share links, one per line, to download the datasets while they are
   still unpublished drafts (the record owner makes them: the draft's Share > Get a link,
-  "Can preview"). Default: zenodo-links.txt in this repository, if present (gitignored).
+  "Can preview"). Default: zenodo-links.txt in this repository or in its windows folder, if present (gitignored).
   Not needed once the records are published.
 
 .EXAMPLE
@@ -257,6 +258,30 @@ if ((InWsl "ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | gre
 }
 Write-Host 'GitHub accepts the key'
 
+# --- 5b. API key files (e-INFRA CZ, OpenAI, NCBI, Semantic Scholar, Zenodo, ...) --------------
+# The code reads them from the Linux home (~/.config/pharmacolibrary), not from Windows: copy
+# each file of %USERPROFILE%\.config\pharmacolibrary that WSL does not have yet, mode 600.
+# A file that differs is reported, not overwritten. Key contents are never printed.
+$winConf = Join-Path $env:USERPROFILE '.config\pharmacolibrary'
+if (Test-Path $winConf) {
+  Step 'API key files (~/.config/pharmacolibrary)'
+  $src = WslPath $winConf
+  $null = InWslScript @"
+set -u
+dst=`$HOME/.config/pharmacolibrary
+mkdir -p "`$dst" && chmod 700 "`$HOME/.config" "`$dst"
+for f in '$src'/*; do
+  [ -f "`$f" ] || continue
+  n=`$(basename "`$f")
+  if [ ! -e "`$dst/`$n" ]; then
+    tr -d '\r' < "`$f" > "`$dst/`$n" && chmod 600 "`$dst/`$n" && echo "copied `$n"
+  elif ! tr -d '\r' < "`$f" | cmp -s - "`$dst/`$n"; then
+    echo "kept ~/.config/pharmacolibrary/`$n: it differs from the Windows copy (delete it to copy again)"
+  fi
+done
+"@
+}
+
 # --- 6. project setup (shared with the Vagrant VM) ---------------------------------------------
 Step 'Project setup: bootstrap-dbs.sh'
 $script = WslPath (Join-Path $RepoDir 'bootstrap-dbs.sh')
@@ -269,12 +294,15 @@ elseif ($WithCorpus) { $bootArgs += ' --with-corpus' }
 else { $bootArgs += ' --with-demo-corpus' }
 if ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
 # share links of unpublished Zenodo drafts: read from a file, never on the command line
-if (-not $ZenodoLinks -and (Test-Path (Join-Path $RepoDir 'zenodo-links.txt'))) {
-  $ZenodoLinks = Join-Path $RepoDir 'zenodo-links.txt'
+if (-not $ZenodoLinks) {
+  $ZenodoLinks = @((Join-Path $RepoDir 'zenodo-links.txt'), (Join-Path $Here 'zenodo-links.txt')) |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if ($ZenodoLinks -and -not $NoKnowledgebase) {
   if (-not (Test-Path $ZenodoLinks)) { Fail "ZenodoLinks file not found: $ZenodoLinks" }
-  $bootArgs += " --zenodo-links-file '$(WslPath (Resolve-Path $ZenodoLinks).Path)'"
+  $ZenodoLinks = (Resolve-Path $ZenodoLinks).Path
+  Write-Host "Zenodo share links: $ZenodoLinks"
+  $bootArgs += " --zenodo-links-file '$(WslPath $ZenodoLinks)'"
 }
 # strip CR: Git for Windows may have checked the script out with CRLF line endings
 $rc = InWsl "tr -d '\r' < '$script' > /tmp/bootstrap-dbs.sh && bash /tmp/bootstrap-dbs.sh $bootArgs" -Root

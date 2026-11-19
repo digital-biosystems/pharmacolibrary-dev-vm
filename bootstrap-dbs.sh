@@ -142,7 +142,8 @@ log() { echo "[bootstrap-dbs] $*"; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 # procps (pgrep, ps): the project's run scripts; a minimal image (ubuntu-base, WSL) lacks it
-apt-get -y install git openssh-client sudo ca-certificates curl procps
+# poppler-utils (pdftotext, pdftoppm, pdfinfo): the pipeline's PDF text and page-image extraction
+apt-get -y install git openssh-client sudo ca-certificates curl procps poppler-utils
 
 # --- GitHub host key: pinned, so the first clone never prompts -------------------------------
 # If GitHub rotates this key, update it here.
@@ -238,7 +239,9 @@ import json, re, sys, urllib.parse, urllib.request, urllib.error
 rid, tokfile, linkfile = sys.argv[1], sys.argv[2], sys.argv[3]
 token = open(tokfile).read().strip() if tokfile else ""
 links = {}
-for line in (open(linkfile, encoding="utf-8-sig") if linkfile else []):
+raw = open(linkfile, "rb").read() if linkfile else b""
+text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig", "replace")
+for line in text.splitlines():           # Notepad may save UTF-16 or add a BOM
     line = line.strip()
     m = (re.search(r"/(?:records|uploads|deposit)/(\d+)\S*?[?&]token=([^&\s#]+)", line)
          or re.match(r"(\d+)\s+(\S+)$", line))
@@ -538,7 +541,7 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
       as_user curl -fL --retry 5 --retry-delay 15 -C - ${cfg:+-K "$cfg"} -o "$tmp/$name" "$url" || return 1
       got="$(md5sum "$tmp/$name" | cut -d' ' -f1)"
       if [ -n "$md5" ] && [ "$got" != "$md5" ]; then
-        log "ERROR: $label/$name: MD5 $got, Zenodo says $md5 — archive deleted, run again"
+        log "ERROR: $label/$name: MD5 $got, Zenodo says $md5 - archive deleted, run again"
         as_user rm -f "$tmp/$name"
         return 1
       fi
@@ -565,7 +568,7 @@ if [ "$WITH_KB" -eq 1 ]; then
     fetch_zenodo "$label" "$rid" "$demo" || rc=$?
     case "$rc" in
       0) loaded=1 ;;
-      4) log "WARNING: Zenodo record $rid ($label) is not public yet — skipped (https://doi.org/10.5281/zenodo.$rid). Put its share link in zenodo-links.txt (--zenodo-links-file), or the owner can pass --zenodo-token-file." ;;
+      4) log "WARNING: Zenodo record $rid ($label) is not public yet - skipped (https://doi.org/10.5281/zenodo.$rid). Put its share link in zenodo-links.txt (--zenodo-links-file), or the owner can pass --zenodo-token-file." ;;
       *) log "WARNING: $label did not finish; run this script again to resume" ;;
     esac
   done
