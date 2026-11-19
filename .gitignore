@@ -1,3 +1,7 @@
 id_rsa*
 *.webdav
 zenodo-links.txt
+# config-template holds placeholders only: never real keys
+config-template/*
+!config-template/*.example
+!config-template/README.md

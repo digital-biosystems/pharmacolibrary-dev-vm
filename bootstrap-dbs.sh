@@ -34,11 +34,15 @@
 #                        the ddd and dku panel drugs (12 drugs, ~0.65 GB unpacked); see below.
 #                        Combines with --with-nc-corpus, not with --with-corpus
 #   --with-nc-corpus     also the non-commercial source corpus (~20 GB; licence terms apply)
-#   --zenodo-token-file  Zenodo access token of the record owner, to fetch an unpublished draft
+#   --zenodo-token-file  Zenodo access token of the record owner, to fetch an unpublished draft;
+#                        default: ~NAME/.config/pharmacolibrary/zenodo_access_token, if present
 #   --zenodo-links-file  Zenodo share links (Share > Get a link, "Can preview"), one per line, to
 #                        fetch unpublished drafts without an account; default: zenodo-links.txt
-#                        beside this script, if present (gitignored). Lines like
+#                        in ~NAME/.config/pharmacolibrary, else beside this script. Lines like
 #                        https://zenodo.org/records/24119263?preview=1&token=...  (or: ID TOKEN)
+#
+# User configuration and keys: ~NAME/.config/pharmacolibrary (mode 700, files 600), never in a
+# repository; config-template/ lists the files. This script creates the directory.
 #
 # Knowledge base: the public Zenodo datasets are downloaded, checked against Zenodo's MD5 and
 # unpacked into --kb-dir, which is then set as "knowledgebase" in
@@ -109,14 +113,21 @@ done
 if [ "$(id -u)" -ne 0 ]; then
   echo "bootstrap-dbs.sh: run as root" >&2; exit 2
 fi
-if [ -z "$ZENODO_LINKS_FILE" ] && [ -f "$(dirname -- "$0")/zenodo-links.txt" ]; then
-  ZENODO_LINKS_FILE="$(dirname -- "$0")/zenodo-links.txt"
+if [ -z "$TARGET_USER" ] || ! id "$TARGET_USER" >/dev/null 2>&1; then
+  echo "bootstrap-dbs.sh: --user must name an existing user (got '$TARGET_USER')" >&2; exit 2
+fi
+# User configuration and keys live in ~NAME/.config/pharmacolibrary (see config-template/).
+CONF_DIR="$(getent passwd "$TARGET_USER" | cut -d: -f6)/.config/pharmacolibrary"
+if [ -z "$ZENODO_LINKS_FILE" ]; then
+  for f in "$CONF_DIR/zenodo-links.txt" "$(dirname -- "$0")/zenodo-links.txt"; do
+    if [ -f "$f" ]; then ZENODO_LINKS_FILE="$f"; break; fi
+  done
+fi
+if [ -z "$ZENODO_TOKEN_FILE" ] && [ -s "$CONF_DIR/zenodo_access_token" ]; then
+  ZENODO_TOKEN_FILE="$CONF_DIR/zenodo_access_token"
 fi
 if [ -n "$ZENODO_LINKS_FILE" ] && [ ! -r "$ZENODO_LINKS_FILE" ]; then
   echo "bootstrap-dbs.sh: --zenodo-links-file $ZENODO_LINKS_FILE is not readable" >&2; exit 2
-fi
-if [ -z "$TARGET_USER" ] || ! id "$TARGET_USER" >/dev/null 2>&1; then
-  echo "bootstrap-dbs.sh: --user must name an existing user (got '$TARGET_USER')" >&2; exit 2
 fi
 if [ "$WITH_KB" -eq 0 ] && { [ "$WITH_CORPUS" -eq 1 ] || [ "$WITH_NC_CORPUS" -eq 1 ]; }; then
   echo "bootstrap-dbs.sh: --with-corpus and --with-nc-corpus need the knowledge base (drop --no-kb)" >&2; exit 2
@@ -144,6 +155,10 @@ apt-get update
 # procps (pgrep, ps): the project's run scripts; a minimal image (ubuntu-base, WSL) lacks it
 # poppler-utils (pdftotext, pdftoppm, pdfinfo): the pipeline's PDF text and page-image extraction
 apt-get -y install git openssh-client sudo ca-certificates curl procps poppler-utils
+
+# --- user configuration and keys: ~/.config/pharmacolibrary ----------------------------------
+as_user mkdir -p "$CONF_DIR"
+chmod 700 "$CONF_DIR"
 
 # --- GitHub host key: pinned, so the first clone never prompts -------------------------------
 # If GitHub rotates this key, update it here.
@@ -276,9 +291,14 @@ except urllib.error.HTTPError as e:
     try:
         d = get(f"https://zenodo.org/api/deposit/depositions/{rid}", True)
     except urllib.error.HTTPError as e2:
+        if e2.code in (401, 403, 404):  # the token is not the record owner's
+            sys.exit(4)
         sys.exit(f"zenodo deposition {rid}: HTTP {e2.code}")
     rows = [(f["filename"], f["filesize"], f.get("checksum", ""), f["links"]["download"])
             for f in d["files"]]
+    for name, size, md5, url in rows:
+        print(f"{name}\t{size}\t{md5.split(':')[-1]}\t{url}")
+    sys.exit(3)                         # listed with the owner's token: the downloads need it too
 for name, size, md5, url in rows:
     print(f"{name}\t{size}\t{md5.split(':')[-1]}\t{url}")
 PY
@@ -485,9 +505,9 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
   dh="$(printf '%s' "$DEMO_DRUGS" | tr ' ' '\n' | sort | tr '\n' ' ' | sha256sum | cut -c1-8)"
   list="$(zenodo_list "$rid")" || rc=$?
   if [ "$rc" -eq 4 ]; then return 4; fi
-  if [ "$rc" -ne 0 ]; then return 1; fi
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then return 1; fi
   as_user mkdir -p "$meta" "$tmp"
-  if [ -n "$ZENODO_TOKEN_FILE" ]; then      # curl reads the token from a private file, not argv
+  if [ "$rc" -eq 3 ]; then                  # curl reads the token from a private file, not argv
     cfg="$KB_DIR/.zenodo/curl.cfg"
     printf 'header = "Authorization: Bearer %s"\n' "$(cat "$ZENODO_TOKEN_FILE")" | as_user tee "$cfg" >/dev/null
     chmod 600 "$cfg"

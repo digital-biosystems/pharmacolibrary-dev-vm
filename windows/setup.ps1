@@ -15,8 +15,9 @@
   4. Creates the Linux user and writes /etc/wsl.conf: default user, no systemd, Docker started
      when the distro starts, Windows drives mounted with Linux permissions and with directories
      created from Linux case-sensitive. Links ~/Projects in Linux to %USERPROFILE%\Projects.
-  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh, and copies the API key
-     files of %USERPROFILE%\.config\pharmacolibrary into ~/.config/pharmacolibrary (mode 600).
+  5. Puts an SSH key that GitHub accepts into the Linux user's ~/.ssh, and copies the user
+     configuration and keys of %USERPROFILE%\.config\pharmacolibrary into ~/.config/pharmacolibrary
+     (mode 600). If that folder is missing, it is created from ..\config-template.
   6. Runs ..\bootstrap-dbs.sh in the distro as root: the repositories cloned side by side into
      %USERPROFILE%\Projects (beside this one), Python venv (~/venv, inside Linux), Docker Engine,
      Bodylight.js-FMU-Compiler, the Zenodo knowledge base in %USERPROFILE%\Projects\knowledgebase.
@@ -46,7 +47,8 @@
 .PARAMETER ZenodoLinks
   Text file with Zenodo share links, one per line, to download the datasets while they are
   still unpublished drafts (the record owner makes them: the draft's Share > Get a link,
-  "Can preview"). Default: zenodo-links.txt in this repository or in its windows folder, if present (gitignored).
+  "Can preview"). Default: the first zenodo-links.txt found in %USERPROFILE%\.config\pharmacolibrary,
+  this repository or its windows folder (gitignored).
   Not needed once the records are published.
 
 .EXAMPLE
@@ -258,21 +260,29 @@ if ((InWsl "ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | gre
 }
 Write-Host 'GitHub accepts the key'
 
-# --- 5b. API key files (e-INFRA CZ, OpenAI, NCBI, Semantic Scholar, Zenodo, ...) --------------
-# The code reads them from the Linux home (~/.config/pharmacolibrary), not from Windows: copy
-# each file of %USERPROFILE%\.config\pharmacolibrary that WSL does not have yet, mode 600.
-# A file that differs is reported, not overwritten. Key contents are never printed.
+# --- 5b. user configuration and keys (e-INFRA CZ, OpenAI, NCBI, Semantic Scholar, Zenodo, ...) -
+# All of it lives in %USERPROFILE%\.config\pharmacolibrary (config-template\README.md lists the
+# files). The code reads it from the Linux home (~/.config/pharmacolibrary): copy each file,
+# subfolders included, that WSL does not have yet, mode 600, CRs stripped. *.example, README*
+# and empty files are skipped; a file that differs is reported, not overwritten. Key contents
+# are never printed.
+Step 'User configuration and keys (~/.config/pharmacolibrary)'
 $winConf = Join-Path $env:USERPROFILE '.config\pharmacolibrary'
-if (Test-Path $winConf) {
-  Step 'API key files (~/.config/pharmacolibrary)'
-  $src = WslPath $winConf
-  $null = InWslScript @"
+if (-not (Test-Path $winConf)) {
+  New-Item -ItemType Directory -Force $winConf | Out-Null
+  Copy-Item (Join-Path $RepoDir 'config-template\*') $winConf -Recurse
+  Write-Host "created $winConf from config-template. Fill in the keys you have, drop the .example suffix (README.md there lists the files) and run this script again." -ForegroundColor Yellow
+}
+$src = WslPath $winConf
+$null = InWslScript @"
 set -u
 dst=`$HOME/.config/pharmacolibrary
 mkdir -p "`$dst" && chmod 700 "`$HOME/.config" "`$dst"
-for f in '$src'/*; do
-  [ -f "`$f" ] || continue
-  n=`$(basename "`$f")
+cd '$src' || exit 1
+find . -type f ! -name '*.example' ! -name 'README*' -size +0 | sort | while IFS= read -r f; do
+  n=`${f#./}
+  d=`$(dirname "`$dst/`$n")
+  mkdir -p "`$d" && chmod 700 "`$d"
   if [ ! -e "`$dst/`$n" ]; then
     tr -d '\r' < "`$f" > "`$dst/`$n" && chmod 600 "`$dst/`$n" && echo "copied `$n"
   elif ! tr -d '\r' < "`$f" | cmp -s - "`$dst/`$n"; then
@@ -280,7 +290,6 @@ for f in '$src'/*; do
   fi
 done
 "@
-}
 
 # --- 6. project setup (shared with the Vagrant VM) ---------------------------------------------
 Step 'Project setup: bootstrap-dbs.sh'
@@ -295,7 +304,8 @@ else { $bootArgs += ' --with-demo-corpus' }
 if ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
 # share links of unpublished Zenodo drafts: read from a file, never on the command line
 if (-not $ZenodoLinks) {
-  $ZenodoLinks = @((Join-Path $RepoDir 'zenodo-links.txt'), (Join-Path $Here 'zenodo-links.txt')) |
+  $ZenodoLinks = @((Join-Path $winConf 'zenodo-links.txt'), (Join-Path $RepoDir 'zenodo-links.txt'),
+                   (Join-Path $Here 'zenodo-links.txt')) |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 if ($ZenodoLinks -and -not $NoKnowledgebase) {

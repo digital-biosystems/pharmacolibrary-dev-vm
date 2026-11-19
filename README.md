@@ -7,6 +7,10 @@ Two ways to set up the same development environment:
 
 Both clone the `digital-biosystems` repositories `pharmacolibrary-dev`, `dbs-components-dev` (both private), `pharmacolibrary-docs` and `Pharmacolibrary` (public) and set up a Python venv, Docker Engine and the Zenodo knowledge base (see [Provisioning](#provisioning)).
 
+## User configuration and keys
+
+All per-user configuration lives in `~/.config/pharmacolibrary` (mode 700, files 600), never in a repository. That covers the API keys (e-INFRA CZ, OpenAI, Ollama, NCBI, Semantic Scholar), the Neo4j password, the Zenodo token, `zenodo-links.txt` and `dashboard/resources.yaml`. [`config-template/`](config-template/README.md) lists the files and has an `.example` for each. On Windows, keep them in `%USERPROFILE%\.config\pharmacolibrary`: `setup.ps1` copies that folder into WSL, and if the folder is missing it creates it from the template. In the VM, put them in `~/.config/pharmacolibrary` inside the VM.
+
 ## Option 1: WSL2
 
 The `ubuntu-base` 24.04 root filesystem (not the Microsoft Store Ubuntu) is imported as the distro `Pharmacolibrary`, limited to 5 GB RAM, 6 GB swap and 4 CPUs (`windows/wslconfig`). Docker Engine runs inside it, so Docker Desktop is not needed. GROBID, OpenModelica and the FMU compiler run in Docker.
@@ -33,7 +37,7 @@ The script:
 1. copies `windows\wslconfig` to `%USERPROFILE%\.wslconfig` and backs up an existing file;
 2. downloads the newest `ubuntu-base-24.04.x` image from `cdimage.ubuntu.com`, checks its SHA-256 and imports it into `%LOCALAPPDATA%\Pharmacolibrary\wsl`;
 3. creates your Linux user (it asks for a password) and writes `/etc/wsl.conf`: `systemd=false`, Docker started at boot, `[automount] options="metadata,case=dir"`;
-4. links `~/Projects` to `%USERPROFILE%\Projects` and copies the SSH key and the API key files from `%USERPROFILE%\.config\pharmacolibrary` into WSL;
+4. links `~/Projects` to `%USERPROFILE%\Projects` and copies the SSH key and `%USERPROFILE%\.config\pharmacolibrary` into WSL. Only files that WSL lacks are copied; a file that differs is reported, not overwritten;
 5. runs `bootstrap-dbs.sh --projects-dir ~/Projects --kb-dir ~/Projects/knowledgebase --with-wasm --with-demo-corpus --grobid-image lfoppiano/grobid:0.9.0-crf --grobid-mem 2g`.
 
 Options:
@@ -43,7 +47,7 @@ Options:
 | `-WithCorpus` | the whole redistributable corpus (about 43 GB) instead of the demo drugs |
 | `-WithNcCorpus` | also the non-commercial corpus (about 20 GB; its licence terms apply) |
 | `-NoKnowledgebase` | no Zenodo download |
-| `-ZenodoLinks FILE` | share links for unpublished Zenodo drafts (default: `zenodo-links.txt` in this repo or in `windows\`) |
+| `-ZenodoLinks FILE` | share links for unpublished Zenodo drafts (default: the first `zenodo-links.txt` in `%USERPROFILE%\.config\pharmacolibrary`, this repo or `windows\`) |
 | `-ProjectsDir DIR` | another Windows folder instead of `%USERPROFILE%\Projects` |
 | `-LinuxUser NAME`, `-Distro NAME` | user and distro name |
 
@@ -125,7 +129,7 @@ The Zenodo datasets are unpacked into `--kb-dir` (default `~/knowledgebase`), wh
 
 Records that are not yet published are skipped with a warning. To download one anyway:
 
-- **Owner:** pass `--zenodo-token-file FILE`.
-- **Everyone else:** use a share link (on Zenodo: *Share* → *Get a link*, *Can preview*). Put one link per line (`https://zenodo.org/records/ID?preview=1&token=…` or `ID TOKEN`) in `zenodo-links.txt`, or pass `--zenodo-links-file FILE`. `bootstrap-dbs.sh` looks for `zenodo-links.txt` next to itself; `setup.ps1` also looks in `windows\`. The file is gitignored.
+- **Owner:** put the token in `~/.config/pharmacolibrary/zenodo_access_token`, which is used automatically, or pass `--zenodo-token-file FILE`. The token is sent only for records that are not public.
+- **Everyone else:** use a share link (on Zenodo: *Share* → *Get a link*, *Can preview*). Put one link per line (`https://zenodo.org/records/ID?preview=1&token=…` or `ID TOKEN`) in `~/.config/pharmacolibrary/zenodo-links.txt`, or pass `--zenodo-links-file FILE`. `bootstrap-dbs.sh` also accepts the file next to itself, and `setup.ps1` also accepts it in this repo or `windows\`; there it is gitignored.
 
 In the VM, pass `--no-kb` in the `Vagrantfile` if you use the `/vagrant_data` share instead.

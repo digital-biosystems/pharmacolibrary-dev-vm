@@ -1,0 +1,4 @@
+# Zenodo share links of unpublished drafts, one per line (draft > Share > Get a link, "Can preview").
+# Not needed once the records are published. Lines starting with # are ignored.
+# https://zenodo.org/records/24119263?preview=1&token=<token>
+# 24125755 <token>
