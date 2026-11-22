@@ -28,7 +28,8 @@
                            dbs-components-dev, Bodylight.js-FMU-Compiler
     %USERPROFILE%\Projects\knowledgebase
 
-  Every step is skipped when already done, so running it again is safe (as `vagrant provision`).
+  Running it again is safe (as `vagrant provision`): the repositories are pulled, Docker and finished
+  Zenodo archives are skipped.
   Remove everything with:  wsl --unregister Pharmacolibrary   (deletes the distro and all work in it)
 
 .PARAMETER LinuxUser
@@ -39,7 +40,10 @@
   Unpack the whole redistributable Zenodo full-text corpus (about 43 GB of disk) instead of the
   full texts of the 12 demo drugs only.
 .PARAMETER WithNcCorpus
-  Also unpack the non-commercial Zenodo corpus (about 20 GB; its licence terms apply).
+  Also the non-commercial Zenodo corpus (CC BY-NC papers; its licence terms apply). The default
+  setup already has the 12 demo drugs' files of it; with -WithCorpus this adds all of it (about 20 GB).
+.PARAMETER NoNcCorpus
+  Leave the non-commercial corpus out of the default setup.
 .PARAMETER NoKnowledgebase
   Skip the Zenodo knowledge base.
 .PARAMETER ProjectsDir
@@ -63,6 +67,7 @@ param(
   [string]$Distro = 'Pharmacolibrary',
   [switch]$WithCorpus,
   [switch]$WithNcCorpus,
+  [switch]$NoNcCorpus,
   [switch]$NoKnowledgebase,
   [string]$ProjectsDir = (Join-Path $env:USERPROFILE 'Projects'),
   [string]$ZenodoLinks = ''
@@ -106,6 +111,7 @@ if (-not $LinuxUser -or $LinuxUser -notmatch '^[a-z_][a-z0-9_-]*$') {
 if ($NoKnowledgebase -and ($WithCorpus -or $WithNcCorpus)) {
   Fail '-WithCorpus and -WithNcCorpus need the knowledge base; drop -NoKnowledgebase'
 }
+if ($WithNcCorpus -and $NoNcCorpus) { Fail '-WithNcCorpus and -NoNcCorpus exclude each other' }
 
 $ProjectsDir = [IO.Path]::GetFullPath($ProjectsDir)
 if ((Split-Path -Parent $RepoDir) -ne $ProjectsDir.TrimEnd('\')) {
@@ -301,7 +307,9 @@ $bootArgs = "--user $LinuxUser --projects-dir '$ProjectsWsl' --kb-dir '$Projects
 if ($NoKnowledgebase) { $bootArgs += ' --no-kb' }
 elseif ($WithCorpus) { $bootArgs += ' --with-corpus' }
 else { $bootArgs += ' --with-demo-corpus' }
-if ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
+# the demo setup includes the non-commercial corpus (demo drugs only) unless -NoNcCorpus
+if ($NoNcCorpus) { $bootArgs += ' --no-nc-corpus' }
+elseif ($WithNcCorpus) { $bootArgs += ' --with-nc-corpus' }
 # share links of unpublished Zenodo drafts: read from a file, never on the command line
 if (-not $ZenodoLinks) {
   $ZenodoLinks = @((Join-Path $winConf 'zenodo-links.txt'), (Join-Path $RepoDir 'zenodo-links.txt'),

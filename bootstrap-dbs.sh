@@ -6,14 +6,17 @@
 #   Vagrant: the Vagrantfile runs it after bootstrap.sh       (--user vagrant)
 #   Windows: windows/setup.ps1 runs it inside the WSL distro  (--user <WSL user>)
 #
-# Every step is skipped when already done, so running it again is safe.
+# Running it again is safe and brings the machine up to date: an existing clone is pulled
+# (git pull --ff-only; a failed pull only warns), Docker and pulled images that are present are
+# skipped, and a Zenodo archive that is already unpacked is skipped (until Zenodo serves a file
+# with a different MD5: then it is fetched again).
 #
 #   bash bootstrap-dbs.sh --user NAME [--no-docker] [--no-venv]
 #                         [--with-grobid] [--with-omc] [--with-wasm]
 #                         [--grobid-image IMAGE] [--grobid-mem SIZE]
 #                         [--projects-dir DIR]
 #                         [--no-kb] [--kb-dir DIR] [--with-corpus | --with-demo-corpus]
-#                         [--with-nc-corpus]
+#                         [--with-nc-corpus | --no-nc-corpus] [--no-pull]
 #                         [--zenodo-token-file FILE] [--zenodo-links-file FILE]
 #
 #   --user NAME          owner of the clones, venv and settings (required)
@@ -34,8 +37,12 @@
 #   --with-corpus        also the redistributable source corpus (PDFs, TEI, text; ~40 GB)
 #   --with-demo-corpus   the research dataset AND the redistributable corpus, but only the files of
 #                        the ddd and dku panel drugs (12 drugs, ~0.65 GB unpacked); see below.
-#                        Combines with --with-nc-corpus, not with --with-corpus
-#   --with-nc-corpus     also the non-commercial source corpus (~20 GB; licence terms apply)
+#                        Also fetches the non-commercial corpus in the same way (its demo drugs
+#                        only) unless --no-nc-corpus. Not with --with-corpus
+#   --with-nc-corpus     the non-commercial source corpus (CC BY-NC papers, ~20 GB; licence terms
+#                        apply): the demo drugs' files with --with-demo-corpus, else all of it
+#   --no-nc-corpus       skip the non-commercial corpus that --with-demo-corpus would fetch
+#   --no-pull            leave existing clones as they are (default: git pull --ff-only)
 #   --zenodo-token-file  Zenodo access token of the record owner, to fetch an unpublished draft;
 #                        default: ~NAME/.config/pharmacolibrary/zenodo_access_token, if present
 #   --zenodo-links-file  Zenodo share links (Share > Get a link, "Can preview"), one per line, to
@@ -53,13 +60,17 @@
 #   corpus     --with-corpus             redistributable full texts
 #   nc corpus  --with-nc-corpus          full texts allowed for non-commercial use only
 # --with-demo-corpus: Zenodo serves whole files only, but a plain .tar can be read by byte range:
-# the corpus shards are fetched in pieces (the 12 drugs' files and the files they hard-link to,
-# ~0.6 GB of the 37 GB), checked against the manifest's SHA-256 and unpacked; if the offsets
+# the corpus shards (redistributable and non-commercial) are fetched in pieces (the 12 drugs' files and the files they hard-link to,
+# ~0.6 GB of the 37 GB for the redistributable corpus, a similar share of the 20 GB non-commercial
+# one), checked against the manifest's SHA-256 and unpacked; if the offsets
 # do not fit a shard it is streamed whole instead. The research archive is a .tar.gz, which
 # cannot be read by range: it is streamed (0.5 GB). No archive is kept. DEMO_DRUGS lists the drugs.
 # A record that is not public yet is skipped with a warning. Record ids: ZENODO_RESEARCH_ID,
 # ZENODO_CORPUS_ID, ZENODO_NC_CORPUS_ID. Each archive is deleted after it is unpacked, so the
-# disk needs the unpacked size plus the largest archive (4.3 GB); a rerun resumes.
+# disk needs the unpacked size plus the largest archive (4.3 GB); a rerun resumes. A finished
+# archive leaves the marker .zenodo/<label>/<file>.done holding its MD5; a rerun skips it while
+# Zenodo still serves that MD5 (an empty marker from an older script is trusted). Delete the
+# marker, or the label's folder under .zenodo, to fetch an archive again.
 #
 # The SSH key that GitHub accepts for the private repositories must already be in
 # ~NAME/.ssh. bootstrap.sh (VM) and setup.ps1 (Windows) put it there.
@@ -79,7 +90,9 @@ MSL_VERSION="4.0.0"
 WITH_KB=1
 WITH_CORPUS=0
 WITH_NC_CORPUS=0
+NO_NC_CORPUS=0
 WITH_DEMO=0
+WITH_PULL=1
 # the ddd + dku panels of pharmacolibrary-dev (pk_knowledge_scripts/paths.py: DRUGS_DDD, DRUGS_DKU);
 # keep in step with them. Names, not slugs: drug_<name> is the folder.
 DEMO_DRUGS="${DEMO_DRUGS:-metformin ibuprofen amoxicillin semaglutide tolvaptan allopurinol clopidogrel vancomycin tacrolimus busulfan infliximab posaconazole}"
@@ -107,6 +120,8 @@ while [ $# -gt 0 ]; do
     --projects-dir) PROJECTS_DIR="$2"; shift 2 ;;
     --with-corpus)  WITH_CORPUS=1; shift ;;
     --with-nc-corpus) WITH_NC_CORPUS=1; shift ;;
+    --no-nc-corpus) NO_NC_CORPUS=1; shift ;;
+    --no-pull)      WITH_PULL=0; shift ;;
     --with-demo-corpus) WITH_DEMO=1; shift ;;
     --zenodo-token-file) ZENODO_TOKEN_FILE="$2"; shift 2 ;;
     --zenodo-links-file) ZENODO_LINKS_FILE="$2"; shift 2 ;;
@@ -132,6 +147,9 @@ if [ -z "$ZENODO_TOKEN_FILE" ] && [ -s "$CONF_DIR/zenodo_access_token" ]; then
 fi
 if [ -n "$ZENODO_LINKS_FILE" ] && [ ! -r "$ZENODO_LINKS_FILE" ]; then
   echo "bootstrap-dbs.sh: --zenodo-links-file $ZENODO_LINKS_FILE is not readable" >&2; exit 2
+fi
+if [ "$WITH_NC_CORPUS" -eq 1 ] && [ "$NO_NC_CORPUS" -eq 1 ]; then
+  echo "bootstrap-dbs.sh: --with-nc-corpus and --no-nc-corpus exclude each other" >&2; exit 2
 fi
 if [ "$WITH_KB" -eq 0 ] && { [ "$WITH_CORPUS" -eq 1 ] || [ "$WITH_NC_CORPUS" -eq 1 ]; }; then
   echo "bootstrap-dbs.sh: --with-corpus and --with-nc-corpus need the knowledge base (drop --no-kb)" >&2; exit 2
@@ -178,7 +196,13 @@ chown -R "$TARGET_USER:" "$SSH_DIR"
 clone() {
   local dir="$PROJECTS_DIR/$(basename "$1" .git)"
   if [ -d "$dir" ]; then
-    log "$dir exists, skipping clone"
+    if [ "$WITH_PULL" -eq 1 ] && [ -d "$dir/.git" ]; then
+      log "$dir exists, pulling"
+      as_user git -C "$dir" pull --ff-only \
+        || log "WARNING: git pull failed in $dir (local changes, a diverged branch or no network); left as it is"
+    else
+      log "$dir exists, not pulled"
+    fi
   else
     as_user mkdir -p "$PROJECTS_DIR"
     as_user git -C "$PROJECTS_DIR" clone "$1"
@@ -512,6 +536,17 @@ print(f"{name}: {len(done)} demo files unpacked ({how})")
 PY
 }
 
+# A finished archive's marker holds its MD5; it counts while Zenodo serves the same MD5. An empty
+# marker (written by an older script) cannot be compared and is trusted.
+marker_ok() {   # <marker file> <md5 Zenodo serves>
+  [ -e "$1" ] || return 1
+  local m; m="$(cat "$1")"
+  [ -z "$m" ] || [ -z "$2" ] || [ "$m" = "$2" ]
+}
+mark_done() {   # <marker file> <md5>
+  printf '%s\n' "$2" | as_user tee "$1" >/dev/null
+}
+
 # Downloads, verifies and unpacks one record into $KB_DIR; demo=1: only the demo drugs' files.
 # 0 = unpacked (or already was), 4 = not public, anything else = failed.
 fetch_zenodo() {   # <label> <record id> <demo 0|1>
@@ -532,8 +567,11 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
     [ -n "$name" ] || continue
     case "$name" in
       *.tar|*.tar.gz|*.tgz) ;;
-      *) if [ ! -s "$meta/$name" ]; then
-           as_user curl -fsSL ${cfg:+-K "$cfg"} -o "$meta/$name" "$url" || log "WARNING: could not fetch $label/$name"
+      *) if [ ! -s "$meta/$name" ] \
+              || { [ -n "$md5" ] && [ "$(md5sum < "$meta/$name" | cut -d' ' -f1)" != "$md5" ]; }; then
+           as_user curl -fsSL ${cfg:+-K "$cfg"} -o "$meta/$name.new" "$url" \
+             && as_user mv -f "$meta/$name.new" "$meta/$name" \
+             || log "WARNING: could not fetch $label/$name"
          fi ;;
     esac
   done <<< "$list"
@@ -544,7 +582,7 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
     while IFS=$'\t' read -r name size md5 url; do
       case "$name" in
         *.tar|*.tar.gz|*.tgz)
-          if [ ! -e "$meta/$name.done" ]; then
+          if ! marker_ok "$meta/$name.done" "$md5"; then
             need=$((need + size))
             if [ "$size" -gt "$big" ]; then big="$size"; fi
           fi ;;
@@ -562,15 +600,18 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
       *.tar|*.tar.gz|*.tgz) ;;
       *) continue ;;
     esac
+    if marker_ok "$meta/$name.done" "$md5" || { [ "$demo" -eq 1 ] && marker_ok "$meta/$name.demo-$dh.done" "$md5"; }; then
+      log "$label/$name: already unpacked, skipped"; continue
+    fi
     if [ -e "$meta/$name.done" ] || { [ "$demo" -eq 1 ] && [ -e "$meta/$name.demo-$dh.done" ]; }; then
-      log "$label/$name: already unpacked"; continue
+      log "$label/$name: Zenodo serves a different file than the one unpacked earlier, fetching it again"
     fi
     if [ "$demo" -eq 1 ]; then
       log "$label/$name: unpacking only the demo drugs"
       rc=0
       zenodo_extract_demo "$name" "$url" "$md5" "$meta/MANIFEST.csv" "$cfg" "$KB_DIR/.zenodo/spool-$name" "$size" || rc=$?
       if [ "$rc" -ne 0 ]; then log "ERROR: $label/$name: demo unpacking failed (exit $rc)"; return 1; fi
-      as_user touch "$meta/$name.demo-$dh.done"
+      mark_done "$meta/$name.demo-$dh.done" "$md5"
     else
       log "$label/$name: downloading $((size / 1000000)) MB"
       as_user curl -fL --retry 5 --retry-delay 15 -C - ${cfg:+-K "$cfg"} -o "$tmp/$name" "$url" || return 1
@@ -583,7 +624,7 @@ fetch_zenodo() {   # <label> <record id> <demo 0|1>
       log "$label/$name: unpacking into $KB_DIR"
       as_user tar -xf "$tmp/$name" -C "$KB_DIR" || return 1
       as_user rm -f "$tmp/$name"
-      as_user touch "$meta/$name.done"
+      mark_done "$meta/$name.done" "$md5"
     fi
   done <<< "$list"
   if [ -n "$cfg" ]; then as_user rm -f "$cfg"; fi
@@ -594,9 +635,11 @@ if [ "$WITH_KB" -eq 1 ]; then
   apt-get -y install python3 curl tar coreutils
   as_user mkdir -p "$KB_DIR"
   loaded=0
+  # the non-commercial corpus: with --with-demo-corpus by default, and then only the demo drugs
+  NC_WANT=$(( WITH_NC_CORPUS || (WITH_DEMO && !NO_NC_CORPUS) ))
   for entry in "research:$ZENODO_RESEARCH_ID:1:$WITH_DEMO" \
                "corpus:$ZENODO_CORPUS_ID:$(( WITH_CORPUS || WITH_DEMO )):$WITH_DEMO" \
-               "nc-corpus:$ZENODO_NC_CORPUS_ID:$WITH_NC_CORPUS:0"; do
+               "nc-corpus:$ZENODO_NC_CORPUS_ID:$NC_WANT:$WITH_DEMO"; do
     IFS=: read -r label rid want demo <<< "$entry"
     if [ "$want" -ne 1 ]; then continue; fi
     rc=0

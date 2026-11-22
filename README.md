@@ -45,7 +45,8 @@ Options:
 | Option | Effect |
 |---|---|
 | `-WithCorpus` | the whole redistributable corpus (about 43 GB) instead of the demo drugs |
-| `-WithNcCorpus` | also the non-commercial corpus (about 20 GB; its licence terms apply) |
+| `-WithNcCorpus` | with `-WithCorpus`: all of the non-commercial corpus (about 20 GB; its licence terms apply); the default setup already has its 12 demo drugs' files |
+| `-NoNcCorpus` | leave the non-commercial corpus out of the default setup |
 | `-NoKnowledgebase` | no Zenodo download |
 | `-ZenodoLinks FILE` | share links for unpublished Zenodo drafts (default: the first `zenodo-links.txt` in `%USERPROFILE%\.config\pharmacolibrary`, this repo or `windows\`) |
 | `-ProjectsDir DIR` | another Windows folder instead of `%USERPROFILE%\Projects` |
@@ -123,11 +124,15 @@ The Zenodo datasets are unpacked into `--kb-dir` (default `~/knowledgebase`), wh
 |---|---|
 | (default) | research, record 24119263: per-drug records, provenance, models (0.5 GB packed, 2.3 GB unpacked) |
 | `--with-corpus` | + redistributable full-text corpus, record 24125755 (about 43 GB of disk) |
-| `--with-demo-corpus` | research + the corpus files of the 12 `ddd`/`dku` panel drugs only (`DEMO_DRUGS`): about 1.1 GB downloaded, 0.7 GB unpacked; not combinable with `--with-corpus` |
-| `--with-nc-corpus` | + non-commercial corpus, record 24133749 (its licence terms apply) |
+| `--with-demo-corpus` | research + the redistributable **and** the non-commercial corpus files of the 12 `ddd`/`dku` panel drugs only (`DEMO_DRUGS`): about 1.8 GB downloaded, 1.2 GB unpacked; not combinable with `--with-corpus` |
+| `--with-nc-corpus` | + non-commercial corpus (CC BY-NC papers), record 24133749 (its licence terms apply): the demo drugs' files with `--with-demo-corpus`, else all of it (about 20 GB) |
+| `--no-nc-corpus` | leave the non-commercial corpus out of `--with-demo-corpus` |
+| `--no-pull` | do not pull existing clones |
 | `--no-kb` | nothing |
 
-`--with-demo-corpus` fetches only the needed byte ranges of the plain `.tar` shards and checks each file against the SHA-256 in `MANIFEST.csv`. The research `.tar.gz` is streamed whole. Keep `DEMO_DRUGS` in step with the panels in `pharmacolibrary-dev`.
+**Running the script again updates the machine.** Every existing clone is pulled (`git pull --ff-only`; a failure, for example local changes, only warns), Docker and pulled images are skipped when present, and a Zenodo archive that is already unpacked is skipped. Its marker `.zenodo/<label>/<file>.done` holds the archive's MD5, so an archive that Zenodo has replaced since (same name, new MD5) is fetched again, and so are `MANIFEST.csv` and `RELEASE.json`. A marker left empty by an older script is trusted; delete it to force a new fetch.
+
+`--with-demo-corpus` fetches only the needed byte ranges of the plain `.tar` shards (redistributable and non-commercial) and checks each file against the SHA-256 in `MANIFEST.csv`. The research `.tar.gz` is streamed whole. Keep `DEMO_DRUGS` in step with the panels in `pharmacolibrary-dev`.
 
 Records that are not yet published are skipped with a warning. To download one anyway:
 
