@@ -19,7 +19,8 @@
 #                         [--with-nc-corpus | --no-nc-corpus] [--no-pull]
 #                         [--zenodo-token-file FILE] [--zenodo-links-file FILE]
 #
-#   --user NAME          owner of the clones, venv and settings (required)
+#   --user NAME          owner of the clones, venv and settings (default under sudo: $SUDO_USER;
+#                        required when run as root directly)
 #   --no-docker          skip Docker Engine (GROBID and omc run in Docker)
 #   --no-venv            skip the Python venv in ~/venv
 #   --with-grobid        pull the GROBID image now (else on first scripts/run_grobid.sh)
@@ -131,6 +132,10 @@ done
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "bootstrap-dbs.sh: run as root" >&2; exit 2
+fi
+if [ -z "$TARGET_USER" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+  TARGET_USER="$SUDO_USER"
+  echo "bootstrap-dbs.sh: --user not given, using $TARGET_USER (the user who ran sudo)"
 fi
 if [ -z "$TARGET_USER" ] || ! id "$TARGET_USER" >/dev/null 2>&1; then
   echo "bootstrap-dbs.sh: --user must name an existing user (got '$TARGET_USER')" >&2; exit 2
