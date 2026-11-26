@@ -5,7 +5,7 @@ Two ways to set up the same development environment:
 1. **WSL2 on Windows 11**: a minimal Ubuntu 24.04 distro that shares resources with Windows. For machines with 8 GB RAM.
 2. **Vagrant + VirtualBox**: an isolated Ubuntu desktop VM with 8 GB RAM, on any host OS. Needs a host with 16 GB or more.
 
-Both clone the `digital-biosystems` repositories `pharmacolibrary-dev`, `dbs-components-dev` (both private), `pharmacolibrary-docs` and `Pharmacolibrary` (public) and set up a Python venv, Docker Engine and the Zenodo knowledge base (see [Provisioning](#provisioning)).
+Both clone the `digital-biosystems` repositories `dbs-components-dev` (private), `pharmacolibrary-pipeline`, `pharmacolibrary-docs` and `Pharmacolibrary` (public) and set up a Python venv, Docker Engine and the Zenodo knowledge base (see [Provisioning](#provisioning)).
 
 ## User configuration and keys
 
@@ -52,7 +52,7 @@ Options:
 | `-ProjectsDir DIR` | another Windows folder instead of `%USERPROFILE%\Projects` |
 | `-LinuxUser NAME`, `-Distro NAME` | user and distro name |
 
-Open a shell with `wsl -d Pharmacolibrary`. To use VS Code with the WSL extension, run `code ~/Projects/pharmacolibrary-dev` from that shell.
+Open a shell with `wsl -d Pharmacolibrary`. To use VS Code with the WSL extension, run `code ~/Projects/pharmacolibrary-pipeline` from that shell.
 
 To start OMEdit with the library loaded, run `~/Projects/pharmacolibrary-dev-vm/omedit.sh [FILE.mo ...]`. OMEdit runs in the `$PK_OMC_DOCKER` image and its window appears on the Windows desktop through WSLg. The first start pulls the image, several GB, and installs the Modelica Standard Library into `~/.openmodelica/libraries`, which the pipeline's omc container also uses; the image has none of its own. `-n` prints the `docker run` command instead of running it.
 
@@ -63,7 +63,7 @@ Everything except the venv lives in `%USERPROFILE%\Projects`, which Linux sees a
 | Folder in `Projects` | Contents |
 |---|---|
 | `pharmacolibrary-dev-vm` | this repository |
-| `pharmacolibrary-dev` | the pipeline |
+| `pharmacolibrary-pipeline` | the pipeline |
 | `pharmacolibrary-docs` | the docs site, written by `docs.build` |
 | `Pharmacolibrary` | the Modelica library (`PHARMACOLIBRARY_MO`) |
 | `dbs-components-dev`, `Bodylight.js-FMU-Compiler` | components, FMU compiler |
@@ -114,11 +114,11 @@ sudo apt update && sudo apt install vagrant
 ## Provisioning
 
 - `bootstrap.sh` (VM only): adds a 4 GB swapfile, copies `id_rsa*` to `/home/vagrant/.ssh`, and mounts each ownCloud share configured in a `{storage_dir}.webdav` file to `/mnt/{storage_dir}`. Each such file is one line, `https://host/index.php/s/<secret>`. `.gitignore` excludes these files; never commit them.
-- `bootstrap-dbs.sh` (VM and WSL): clones the repositories into `--projects-dir`, creates `~/venv` from `pharmacolibrary-dev/requirements.txt`, installs Docker Engine, writes `~/.pharmacolibrary_env` (sourced from `~/.bashrc`), and installs the knowledge base. The script header lists all options.
+- `bootstrap-dbs.sh` (VM and WSL): clones the repositories into `--projects-dir`, creates `~/venv` from `pharmacolibrary-pipeline/requirements.txt`, installs Docker Engine, writes `~/.pharmacolibrary_env` (sourced from `~/.bashrc`), and installs the knowledge base. The script header lists all options.
 
 ### Knowledge base
 
-The Zenodo datasets are unpacked into `--kb-dir` (default `~/knowledgebase`), which is then set as `"knowledgebase"` in `pharmacolibrary-dev/pharmacolibrary.local.json`. Each archive is MD5-checked, unpacked and deleted, and a rerun resumes where it stopped.
+The Zenodo datasets are unpacked into `--kb-dir` (default `~/knowledgebase`), which is then set as `"knowledgebase"` in `pharmacolibrary-pipeline/pharmacolibrary.local.json`. Each archive is MD5-checked, unpacked and deleted, and a rerun resumes where it stopped.
 
 | Flag | Dataset |
 |---|---|
@@ -132,7 +132,7 @@ The Zenodo datasets are unpacked into `--kb-dir` (default `~/knowledgebase`), wh
 
 **Running the script again updates the machine.** Every existing clone is pulled (`git pull --ff-only`; a failure, for example local changes, only warns), Docker and pulled images are skipped when present, and a Zenodo archive that is already unpacked is skipped. Its marker `.zenodo/<label>/<file>.done` holds the archive's MD5, so an archive that Zenodo has replaced since (same name, new MD5) is fetched again, and so are `MANIFEST.csv` and `RELEASE.json`. A marker left empty by an older script is trusted; delete it to force a new fetch.
 
-`--with-demo-corpus` fetches only the needed byte ranges of the plain `.tar` shards (redistributable and non-commercial) and checks each file against the SHA-256 in `MANIFEST.csv`. The research `.tar.gz` is streamed whole. Keep `DEMO_DRUGS` in step with the panels in `pharmacolibrary-dev`.
+`--with-demo-corpus` fetches only the needed byte ranges of the plain `.tar` shards (redistributable and non-commercial) and checks each file against the SHA-256 in `MANIFEST.csv`. The research `.tar.gz` is streamed whole. Keep `DEMO_DRUGS` in step with the panels in `pharmacolibrary-pipeline`.
 
 Records that are not yet published are skipped with a warning. To download one anyway:
 

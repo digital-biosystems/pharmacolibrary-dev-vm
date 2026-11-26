@@ -24,7 +24,7 @@
 
   Layout, the same path from Windows and Linux:
     %USERPROFILE%\Projects\pharmacolibrary-dev-vm   = ~/Projects/pharmacolibrary-dev-vm (this repo)
-    %USERPROFILE%\Projects\pharmacolibrary-dev, pharmacolibrary-docs, Pharmacolibrary,
+    %USERPROFILE%\Projects\pharmacolibrary-pipeline, pharmacolibrary-docs, Pharmacolibrary,
                            dbs-components-dev, Bodylight.js-FMU-Compiler
     %USERPROFILE%\Projects\knowledgebase
 
@@ -329,14 +329,14 @@ if ($rc -ne 0) { Fail "bootstrap-dbs.sh failed (exit $rc); fix the cause and run
 Step 'Done'
 Write-Host @"
 Open the environment:   wsl -d $Distro
-Repositories:           $ProjectsDir  (= ~/Projects in Linux): pharmacolibrary-dev,
+Repositories:           $ProjectsDir  (= ~/Projects in Linux): pharmacolibrary-pipeline,
                         pharmacolibrary-docs, Pharmacolibrary, dbs-components-dev,
                         Bodylight.js-FMU-Compiler
-Knowledge base:         $ProjectsDir\knowledgebase (Zenodo; set in pharmacolibrary-dev\pharmacolibrary.local.json)
+Knowledge base:         $ProjectsDir\knowledgebase (Zenodo; set in pharmacolibrary-pipeline\pharmacolibrary.local.json)
 Python:                 source ~/venv/bin/activate   (inside Linux; jupyter lab works from there)
-GROBID:                 cd ~/Projects/pharmacolibrary-dev && scripts/run_grobid.sh   (CRF image, 2 GB)
+GROBID:                 cd ~/Projects/pharmacolibrary-pipeline && scripts/run_grobid.sh   (CRF image, 2 GB)
 OpenModelica:           in Docker (PK_OMC_DOCKER), pulled on first use
-Editor:                 code ~/Projects/pharmacolibrary-dev   (VS Code with the WSL extension)
+Editor:                 code ~/Projects/pharmacolibrary-pipeline   (VS Code with the WSL extension)
 Use git from Linux for these repositories; Windows programs can read and edit the files.
 Remove:                 wsl --unregister $Distro   (deletes the distro and the venv; $ProjectsDir stays)
 "@

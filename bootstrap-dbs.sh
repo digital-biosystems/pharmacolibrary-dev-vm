@@ -56,7 +56,7 @@
 #
 # Knowledge base: the public Zenodo datasets are downloaded, checked against Zenodo's MD5 and
 # unpacked into --kb-dir, which is then set as "knowledgebase" in
-# ~/pharmacolibrary-dev/pharmacolibrary.local.json (the setting the code reads):
+# ~/pharmacolibrary-pipeline/pharmacolibrary.local.json (the setting the code reads):
 #   research   always (unless --no-kb)   per-drug records, provenance, models, ~0.5 GB packed
 #   corpus     --with-corpus             redistributable full texts
 #   nc corpus  --with-nc-corpus          full texts allowed for non-commercial use only
@@ -94,7 +94,7 @@ WITH_NC_CORPUS=0
 NO_NC_CORPUS=0
 WITH_DEMO=0
 WITH_PULL=1
-# the ddd + dku panels of pharmacolibrary-dev (pk_knowledge_scripts/paths.py: DRUGS_DDD, DRUGS_DKU);
+# the ddd + dku panels of pharmacolibrary-pipeline (pharmacolib/paths.py: DRUGS_DDD, DRUGS_DKU);
 # keep in step with them. Names, not slugs: drug_<name> is the folder.
 DEMO_DRUGS="${DEMO_DRUGS:-metformin ibuprofen amoxicillin semaglutide tolvaptan allopurinol clopidogrel vancomycin tacrolimus busulfan infliximab posaconazole}"
 KB_DIR=""
@@ -215,10 +215,18 @@ clone() {
 }
 
 # private repos
-clone git@github.com:digital-biosystems/pharmacolibrary-dev.git
 clone git@github.com:digital-biosystems/dbs-components-dev.git
 
 # public repos
+clone git@github.com:digital-biosystems/pharmacolibrary-pipeline.git
+# pharmacolibrary-pipeline replaces the obsolete pharmacolibrary-dev (no longer cloned): carry an
+# older checkout's untracked settings over once; the old folder itself is left alone
+OLD_CONF="$PROJECTS_DIR/pharmacolibrary-dev/pharmacolibrary.local.json"
+NEW_CONF="$PROJECTS_DIR/pharmacolibrary-pipeline/pharmacolibrary.local.json"
+if [ -f "$OLD_CONF" ] && [ ! -e "$NEW_CONF" ] && [ -d "${NEW_CONF%/*}" ]; then
+  as_user cp "$OLD_CONF" "$NEW_CONF"
+  log "copied pharmacolibrary.local.json from pharmacolibrary-dev to pharmacolibrary-pipeline"
+fi
 clone git@github.com:digital-biosystems/pharmacolibrary-docs.git
 # the Modelica library the generated models extend (engineer, export.fmu); PHARMACOLIBRARY_MO below
 clone git@github.com:digital-biosystems/Pharmacolibrary.git
@@ -234,7 +242,7 @@ if [ "$WITH_VENV" -eq 1 ]; then
   if [ ! -x "$USER_HOME/venv/bin/python" ]; then
     as_user python3 -m venv "$USER_HOME/venv"
   fi
-  REQ="$PROJECTS_DIR/pharmacolibrary-dev/requirements.txt"
+  REQ="$PROJECTS_DIR/pharmacolibrary-pipeline/requirements.txt"
   if [ -f "$REQ" ]; then
     as_user "$USER_HOME/venv/bin/pip" install --upgrade pip
     # a failed install (e.g. a Python too old for a pinned package) must not stop the rest
@@ -657,7 +665,7 @@ if [ "$WITH_KB" -eq 1 ]; then
   done
   # Point the code at it: "knowledgebase" in the untracked pharmacolibrary.local.json, keeping
   # its other settings (e.g. the graph URI). Only once some data is there.
-  CONF="$PROJECTS_DIR/pharmacolibrary-dev/pharmacolibrary.local.json"
+  CONF="$PROJECTS_DIR/pharmacolibrary-pipeline/pharmacolibrary.local.json"
   if [ "$loaded" -eq 1 ] || ls "$KB_DIR"/.zenodo/*/*.done >/dev/null 2>&1; then
     python3 - "$CONF" "$KB_DIR" <<'PY'
 import json, os, sys
